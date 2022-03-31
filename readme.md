@@ -1,0 +1,1 @@
+This repository contains exercises for the Clustering componenet of Machine Learning within Codeup's Data Science Machine Learning Curriculum.
