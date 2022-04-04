@@ -111,6 +111,53 @@ def missing_values_per_row(df):
  
     return missing_in_rows
 
+def remove_columns(df, cols_to_remove = ['buildingqualitytypeid', 'heatingsystemtypeid', 'propertyzoningdesc', 'heatingorsystemdesc']):  
+    df = df.drop(columns=cols_to_remove)
+    return df
+
+def handle_missing_values(df, prop_required_column = .5, prop_required_row = .5):
+    threshold = int(round(prop_required_column*len(df.index),0))
+    df.dropna(axis=1, thresh=threshold, inplace=True)
+    threshold = int(round(prop_required_row*len(df.columns),0))
+    df.dropna(axis=0, thresh=threshold, inplace=True)
+    return df
+
+
+def data_prep(df, cols_to_remove=['censustractandblock','finishedsquarefeet12','buildingqualitytypeid', 'heatingorsystemtypeid', 'propertyzoningdesc', 'heatingorsystemdesc', 'unitcnt'], prop_required_column=.5, prop_required_row=.5):
+    df = remove_columns(df, cols_to_remove)
+    df = handle_missing_values(df, prop_required_column, prop_required_row)
+   
+    # Make categorical column for location based upon the name of the county that belongs to the cooresponding state_county_code (fips code)
+    df['county_code_bin'] = pd.cut(df.fips, bins=[0, 6037.0, 6059.0, 6111.0], 
+                             labels = ['Los Angeles County', 'Orange County',
+                             'Ventura County'])
+   
+    # Make dummy columns for state_county_code using the binned column for processin gin modeling later. 
+    dummy_df = pd.get_dummies(df[['county_code_bin']], dummy_na=False, drop_first=[True])
+    
+    # Add dummy columns to dataframe
+    df = pd.concat([df, dummy_df], axis=1)
+
+    # Make categorical column for square_feet.
+    df['home_sizes'] = pd.cut(df.calculatedfinishedsquarefeet, bins=[0, 1800, 4000, 6000, 25000], 
+                             labels = ['Small: 0 - 1799sqft',
+                             'Medium: 1800 - 3999sqft', 'Large: 4000 - 5999sqft', 'Extra-Large: 6000 - 25000sqft'])
+    
+    # Make categorical column for total_rooms, combining number of bedrooms and bathrooms.
+    df['total_rooms'] = df['bedroomcnt'] + df['bathroomcnt']
+    
+    # Make categorical column for bedrooms.
+    df['bedroom_bins'] = pd.cut(df.bedroomcnt, bins=[0, 2, 4, 6, 15], 
+                             labels = ['Small: 0-2 bedrooms',
+                             'Medium: 3-4 bedrooms', 'Large: 5-6 bedrooms', 'Extra-Large: 7-15 bedrooms'])
+    
+    # Make categorical column for square_feet.
+    df['bathroom_bins'] = pd.cut(df.bathroomcnt, bins=[0, 2, 4, 6, 15], 
+                             labels = ['Small: 0-2 bathrooms',
+                             'Medium: 3-4 bathrooms', 'Large: 5-6 bathrooms', 'Extra-Large: 8-15 bathrooms'])
+    return df
+
+
 
 
 def single_family_homes(df):
@@ -128,4 +175,48 @@ def single_family_homes(df):
     df = df[(df.bedroomcnt > 0) & (df.bathroomcnt > 0) & ((df.unitcnt<=1)|df.unitcnt.isnull()) & (df.calculatedfinishedsquarefeet>400)]
 
     return df
+
+def one_hot_encode(df):
+    df['is_female'] = df.gender == 'Female'
+    df = df.drop(columns='gender')
+    return df
+
+def split(df):
+    train_and_validate, test = train_test_split(df, random_state=123, test_size=.15)
+    train, validate = train_test_split(train_and_validate, random_state=123, test_size=.2)
+
+    print('Train: %d rows, %d cols' % train.shape)
+    print('Validate: %d rows, %d cols' % validate.shape)
+    print('Test: %d rows, %d cols' % test.shape)
+
+    return train, validate, test
+
+def scale(train, validate, test, columns_to_scale):
+    columns_to_scale = []
+    train_scaled = train.copy()
+    validate_scaled = validate.copy()
+    test_scaled = test.copy()
+
+    scaler = MinMaxScaler()
+    scaler.fit(train[columns_to_scale])
+
+    train_scaled[columns_to_scale] = scaler.transform(train[columns_to_scale])
+    validate_scaled[columns_to_scale] = scaler.transform(validate[columns_to_scale])
+    test_scaled[columns_to_scale] = scaler.transform(test[columns_to_scale])
+
+    return train_scaled, validate_scaled, test_scaled
+
+def get_exploration_data():
+    df = acquire()
+    train, validate, test = split(df)
+    return train
+
+def get_modeling_data(scale_data=False):
+    df = acquire()
+    df = one_hot_encode(df)
+    train, validate, test = split(df)
+    if scale_data:
+        return scale(train, validate, test)
+    else:
+        return train, validate, test
 
